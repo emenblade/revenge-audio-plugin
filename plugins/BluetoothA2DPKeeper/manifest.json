@@ -1,0 +1,14 @@
+{
+  "name": "Bluetooth A2DP Keeper",
+  "description": "Prevents Discord from switching Bluetooth to low-quality HFP/SCO mode during voice calls. Keeps A2DP high-quality audio output while using USB-C mic for input.",
+  "authors": [
+    {
+      "name": "emenblade",
+      "id": "000000000000000000"
+    }
+  ],
+  "main": "index.js",
+  "vendetta": {
+    "icon": "ic_audio"
+  }
+}
