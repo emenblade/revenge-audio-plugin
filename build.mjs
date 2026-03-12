@@ -1,25 +1,27 @@
 import esbuild from "esbuild";
-import { readdir, copyFile, mkdir } from "fs/promises";
+import { readdir, readFile, writeFile, mkdir } from "fs/promises";
 import { join, resolve } from "path";
+import { createHash } from "crypto";
+import { readFileSync } from "fs";
 
 const pluginsDir = resolve("plugins");
 const distDir = resolve("dist");
 
-// All @vendetta/* imports are provided at runtime by the Revenge loader
-const vendettaExternals = [
-  "@vendetta",
-  "@vendetta/patcher",
-  "@vendetta/metro",
-  "@vendetta/metro/common",
-  "@vendetta/ui",
-  "@vendetta/ui/toasts",
-  "@vendetta/ui/assets",
-  "@vendetta/ui/components",
-  "@vendetta/plugin",
-  "@vendetta/storage",
-  "@vendetta/utils",
-  "@vendetta/handlers",
-];
+// Maps @vendetta/* imports to vendetta.* globals at runtime
+const vendettaPlugin = {
+  name: "vendetta-globals",
+  setup(build) {
+    build.onResolve({ filter: /^@vendetta/ }, (args) => ({
+      path: args.path,
+      namespace: "vendetta-globals",
+    }));
+    build.onLoad({ filter: /.*/, namespace: "vendetta-globals" }, (args) => {
+      // @vendetta/metro/common → vendetta.metro.common
+      const globalPath = args.path.replace("@vendetta", "vendetta").replace(/\//g, ".");
+      return { contents: `module.exports = ${globalPath};`, loader: "js" };
+    });
+  },
+};
 
 const plugins = await readdir(pluginsDir);
 
@@ -29,26 +31,24 @@ for (const plugin of plugins) {
 
   await mkdir(outDir, { recursive: true });
 
-  // Build index.ts → index.js
   await esbuild.build({
     entryPoints: [join(srcDir, "index.ts")],
     bundle: true,
     format: "iife",
     globalName: "plugin",
     outfile: join(outDir, "index.js"),
-    external: vendettaExternals,
-    footer: {
-      js: "module.exports = plugin;",
-    },
+    plugins: [vendettaPlugin],
+    footer: { js: "module.exports = plugin;" },
     treeShaking: true,
-    minify: false, // keep readable for debugging
+    minify: false,
   });
 
-  // Copy manifest.json next to index.js
-  await copyFile(
-    join(pluginsDir, plugin, "manifest.json"),
-    join(outDir, "manifest.json")
-  );
+  // Compute SHA256 hash of built JS and inject into manifest
+  const js = await readFile(join(outDir, "index.js"));
+  const hash = createHash("sha256").update(js).digest("hex");
+  const manifest = JSON.parse(await readFile(join(pluginsDir, plugin, "manifest.json"), "utf8"));
+  manifest.hash = hash;
+  await writeFile(join(outDir, "manifest.json"), JSON.stringify(manifest));
 
   console.log(`Built: ${plugin}`);
 }
